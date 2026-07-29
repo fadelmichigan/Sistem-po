@@ -1,0 +1,17 @@
+# File ini diletakkan di dalam folder htdocs/po2/uploads/
+# Berfungsi untuk mencegah eksploitasi File Upload & Command Injection
+
+# 1. Matikan mesin eksekusi PHP di dalam folder ini
+php_flag engine off
+
+# 2. Cegah server menjalankan ekstensi file berbahaya
+<FilesMatch "\.(php|php4|php5|php7|php8|phtml|pl|py|jsp|asp|htm|html|shtml|sh|cgi)$">
+    SetHandler None
+    Require all denied
+</FilesMatch>
+
+# 3. Cegah browser menebak tipe MIME (Mencegah XSS via gambar SVG/PDF)
+Header set X-Content-Type-Options "nosniff"
+
+# 4. Jangan izinkan orang melihat daftar isi folder uploads (Directory Listing)
+Options -Indexes

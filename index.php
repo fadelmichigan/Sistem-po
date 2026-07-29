@@ -2,7 +2,7 @@
 session_start();
 include 'koneksi.php';
 
-// Proteksi
+// Cek apakah user sudah login sebagai 'user' (pembeli)
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 'user') {
     header("Location: login.php");
     exit;
@@ -10,13 +10,14 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 'user') {
 
 $id_user_login = $_SESSION['user_id'];
 
-// Ambil data perusahaan
+// Ambil data perusahaan berdasarkan user yang login
 $stmt = $pdo->prepare("SELECT * FROM perusahaan WHERE id_user = ?");
 $stmt->execute([$id_user_login]);
 $perusahaan = $stmt->fetch(PDO::FETCH_ASSOC);
 
+// Jika data perusahaan tidak ditemukan
 if (!$perusahaan) {
-    echo "Data perusahaan belum lengkap. Hubungi admin.";
+    echo "Data perusahaan tidak ditemukan. Silakan hubungi admin.";
     exit;
 }
 ?>
@@ -24,6 +25,7 @@ if (!$perusahaan) {
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Selamat Datang - <?= htmlspecialchars($perusahaan['nama_perusahaan']) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -35,18 +37,24 @@ if (!$perusahaan) {
             border-radius: 0 0 20px 20px;
             margin-bottom: 2rem;
         }
-        .company-logo {
-            width: 100px;
-            height: 100px;
+        .company-logo-container {
+            width: 120px;
+            height: 120px;
             background-color: white;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0 auto 1rem auto;
-            font-size: 2.5rem;
-            color: #0d6efd;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 4px solid white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .company-logo-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Memastikan logo tidak terpotong */
+            padding: 5px;
         }
         .info-card {
             border: none;
@@ -54,19 +62,13 @@ if (!$perusahaan) {
             box-shadow: 0 2px 15px rgba(0,0,0,0.05);
             transition: transform 0.2s;
         }
-        .info-card:hover {
-            transform: translateY(-5px);
-        }
-        .action-btn {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            border-radius: 50px;
-        }
+        .info-card:hover { transform: translateY(-5px); }
+        .action-btn { padding: 15px 30px; font-size: 1.2rem; border-radius: 50px; }
     </style>
 </head>
 <body class="bg-light">
 
-<!-- Navbar Sederhana -->
+<!-- Navbar -->
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
     <div class="container">
         <a class="navbar-brand fw-bold text-primary" href="#">Sistem PO</a>
@@ -78,20 +80,34 @@ if (!$perusahaan) {
     </div>
 </nav>
 
-<!-- Hero Section (Pembukaan) -->
+<!-- Hero Section -->
 <div class="hero-section text-center">
-    <div class="company-logo">
-        <!-- Ganti dengan <img> jika punya logo: <img src="logo.png" ...> -->
-        <i class="bi bi-building"></i>
+    
+    <!-- ========================================== -->
+    <!-- BAGIAN UNTUK MENAMPILKAN LOGO PERUSAHAAN   -->
+    <!-- ========================================== -->
+    <div class="company-logo-container">
+        <?php 
+        // Cek apakah database memiliki nama file logo, dan apakah file tersebut benar-benar ada di folder 'uploads/'
+        if (!empty($perusahaan['logo']) && file_exists('uploads/' . $perusahaan['logo'])): 
+        ?>
+            <!-- Tampilkan Logo dari folder uploads/ -->
+            <img src="uploads/<?= htmlspecialchars($perusahaan['logo']) ?>" alt="Logo" class="company-logo-img">
+        <?php else: ?>
+            <!-- Tampilkan Icon Gedung jika logo kosong atau file tidak ditemukan -->
+            <i class="bi bi-building text-primary" style="font-size: 3.5rem;"></i>
+        <?php endif; ?>
     </div>
+    <!-- ========================================== -->
+
     <h2 class="fw-bold">Selamat Datang, <?= htmlspecialchars($perusahaan['nama_perusahaan']) ?>!</h2>
     <p class="lead mb-0">Selamat berbelanja di portal pemesanan resmi kami.</p>
 </div>
 
-<div class="container">
+<div class="container mb-5">
     <div class="row g-4 justify-content-center">
         
-        <!-- Kartu Data Pembeli (Profil) -->
+        <!-- Kartu Profil -->
         <div class="col-md-5">
             <div class="card info-card h-100">
                 <div class="card-body p-4">
@@ -121,13 +137,13 @@ if (!$perusahaan) {
                     
                     <hr>
                     <a href="profil_saya.php" class="btn btn-outline-secondary btn-sm w-100">
-                        <i class="bi bi-pencil"></i> Edit Profil
+                        <i class="bi bi-pencil"></i> Lihat Detail Profil
                     </a>
                 </div>
             </div>
         </div>
 
-        <!-- Kartu Aksi (Tombol PO) -->
+        <!-- Kartu Aksi Transaksi -->
         <div class="col-md-5">
             <div class="card info-card h-100 border-primary">
                 <div class="card-body p-4 text-center d-flex flex-column justify-content-center align-items-center">

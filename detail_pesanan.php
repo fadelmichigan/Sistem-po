@@ -2,57 +2,54 @@
 session_start();
 include 'koneksi.php'; // Menyediakan $pdo
 
-// Proteksi: Pastikan ini adalah user yang login
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 'user') {
     header('Location: login.php');
     exit;
 }
 
-// 1. Ambil ID user yang sedang login
 $id_user_login = $_SESSION['user_id'];
-
-// 2. Ambil ID pesanan dari URL
 $id_pemesanan = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($id_pemesanan <= 0) {
-    die("ID pesanan tidak valid!");
-}
+if ($id_pemesanan <= 0) die("ID pesanan tidak valid!");
 
-// 3. Query untuk mengambil semua data pesanan
-// =======================================================
-// PERBAIKAN SQL DI SINI
-// =======================================================
-// Kita tambahkan LEFT JOIN ke tabel 'pengiriman'
 $sql = "
     SELECT 
         po.id, po.tanggal_pesan, po.waktu_kirim, po.total_harga,
-        po.dibuat_oleh, po.diketahui_oleh, po.status,
+        po.dibuat_oleh, po.diketahui_oleh, po.status, po.bukti_bayar,
         p.nama_perusahaan, p.email, p.npwp, p.no_telepon, p.id_user,
         b.nama_barang, b.merek, b.jenis, b.satuan,
         pd.harga_satuan, pd.jumlah,
-        k.kurir, k.no_resi  -- Ambil kurir dan no_resi dari tabel pengiriman (alias 'k')
+        k.kurir, k.no_resi
     FROM pemesanan po
     JOIN perusahaan p ON po.id_perusahaan = p.id
     JOIN pemesanan_detail pd ON pd.id_pemesanan = po.id
     JOIN barang b ON pd.id_barang = b.id
-    LEFT JOIN pengiriman k ON k.id_pemesanan = po.id  -- Pakai LEFT JOIN
+    LEFT JOIN pengiriman k ON k.id_pemesanan = po.id
     WHERE po.id = ?
 ";
-// =======================================================
-// AKHIR PERBAIKAN SQL
-// =======================================================
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$id_pemesanan]);
 $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-if (empty($items)) {
-    die("Data pesanan tidak ditemukan!");
+if (empty($items)) die("Data pesanan tidak ditemukan!");
+$data = $items[0];
+
+// Keamanan: Cek apakah ini pesanan milik user yang login
+if ($data['id_user'] != $id_user_login) {
+    die("Akses ditolak. Ini bukan pesanan Anda.");
 }
 
-// 4. Validasi Keamanan
-$data = $items[0]; // Ambil data baris pertama untuk info utama
-if ($data['id_user'] != $id_user_login) {
-    die("Akses ditolak. Anda tidak memiliki izin untuk melihat pesanan ini.");
+// Cek Pesan Sukses/Gagal dari proses upload
+$pesan = '';
+$alert_type = 'info';
+if (isset($_GET['status'])) {
+    if ($_GET['status'] == 'upload_sukses') {
+        $pesan = "Bukti pembayaran berhasil diunggah! Menunggu verifikasi admin.";
+        $alert_type = 'success';
+    } elseif ($_GET['status'] == 'gagal') {
+        $pesan = "Gagal mengunggah: " . htmlspecialchars($_GET['msg'] ?? 'Kesalahan tidak diketahui.');
+        $alert_type = 'danger';
+    }
 }
 ?>
 
@@ -65,32 +62,93 @@ if ($data['id_user'] != $id_user_login) {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         .signature-section { margin-top: 30px; }
-        .signature-name {
-            margin-top: 70px; /* Jarak untuk tanda tangan */
-            font-weight: bold;
-            text-decoration: underline;
-            text-transform: uppercase;
-        }
-        @media print {
-            .no-print { display: none; }
-        }
+        .signature-name { margin-top: 70px; font-weight: bold; text-decoration: underline; text-transform: uppercase; }
+        @media print { .no-print { display: none; } }
     </style>
 </head>
 <body class="bg-light">
 
 <div class="container mt-4 mb-5">
     
-    <!-- Tombol Navigasi (no-print) -->
     <div class="d-flex justify-content-between align-items-center mb-3 no-print">
         <a href="daftar_pesanan.php" class="btn btn-outline-primary">
             <i class="bi bi-arrow-left"></i> Kembali ke Riwayat
         </a>
-        <button onclick="window.print()" class="btn btn-info">
+        <button onclick="window.print()" class="btn btn-info text-white">
             <i class="bi bi-printer-fill"></i> Cetak Halaman Ini
         </button>
     </div>
 
-    <!-- Konten Detail Pesanan -->
+    <?php if($pesan): ?>
+        <div class="alert alert-<?= $alert_type ?> alert-dismissible fade show no-print" role="alert">
+            <?= $pesan ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    <?php endif; ?>
+
+    <?php if (empty($data['bukti_bayar'])): ?>
+        <div class="card shadow-sm border-primary mb-4 no-print">
+            <div class="card-header bg-primary text-white fw-bold">
+                <i class="bi bi-wallet2"></i> Informasi Pembayaran & QRIS
+            </div>
+            <div class="card-body bg-primary bg-opacity-10 p-4">
+                <div class="row align-items-center">
+                    
+                    <!-- Sisi Kiri: Gambar QRIS -->
+                    <div class="col-md-5 text-center mb-4 mb-md-0 border-end border-primary border-opacity-25">
+                        <h6 class="fw-bold text-primary mb-3">Scan QRIS untuk Membayar</h6>
+                        <div class="bg-white p-2 d-inline-block rounded shadow-sm">
+                            <?php 
+                                // Cek apakah gambar QRIS statis tersedia di folder uploads
+                                $file_qris = 'uploads/qris-dummy.png'; 
+                                if (file_exists($file_qris)): 
+                            ?>
+                                <img src="<?= $file_qris ?>" alt="QRIS" class="img-fluid" style="max-width: 200px;">
+                            <?php else: ?>
+                                <!-- Tampilan jika gambar QRIS belum ada -->
+                                <div class="text-muted p-4 border rounded" style="width: 200px; height: 200px; display:flex; align-items:center; justify-content:center; flex-direction:column;">
+                                    <i class="bi bi-qr-code-scan display-4"></i>
+                                    <span class="small mt-2">Gambar QRIS belum diatur (simpan qris-dummy.png di folder uploads)</span>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        <p class="mt-2 mb-0 small text-muted">Menerima pembayaran dari semua e-Wallet & M-Banking.</p>
+                    </div>
+
+                    <!-- Sisi Kanan: Rekening & Upload -->
+                    <div class="col-md-7 ps-md-4">
+                        <h6 class="fw-bold text-dark">Atau Transfer Manual:</h6>
+                        <div class="p-3 bg-white rounded border mb-3">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Bank BCA</span>
+                                <strong class="fs-5">123 456 7890</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Atas Nama</span>
+                                <strong>PT Sistem PO Indonesia</strong>
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold text-dark mt-4 mb-2"><i class="bi bi-cloud-arrow-up"></i> Upload Bukti Pembayaran</h6>
+                        <p class="small text-muted mb-3">Pesanan baru akan diproses setelah bukti transfer diunggah dan diverifikasi.</p>
+                        
+                        <form action="proses_upload_bukti.php" method="POST" enctype="multipart/form-data" class="d-flex gap-2">
+                            <input type="hidden" name="id_pemesanan" value="<?= $data['id'] ?>">
+                            <input type="file" name="bukti_bayar" class="form-control" accept="image/*,application/pdf" required>
+                            <button type="submit" class="btn btn-primary fw-bold px-4">Upload</button>
+                        </form>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    <?php else: ?>
+        <div class="alert alert-success mb-4 no-print">
+            <i class="bi bi-check-circle-fill"></i> Bukti pembayaran telah diunggah. 
+            <a href="uploads/<?= htmlspecialchars($data['bukti_bayar']) ?>" target="_blank" class="alert-link">Lihat Bukti Anda</a>
+        </div>
+    <?php endif; ?>
+
     <div class="card shadow-sm">
         <div class="card-body p-4 p-md-5">
 
@@ -98,7 +156,6 @@ if ($data['id_user'] != $id_user_login) {
                 <h3 class="text-primary fw-bold mb-0">Detail Purchase Order #<?= $data['id'] ?></h3>
                 <div>
                     <?php
-                        // Beri warna status
                         $status = htmlspecialchars($data['status']);
                         $badge_class = 'bg-secondary';
                         if ($status == 'Baru') { $badge_class = 'bg-warning text-dark'; }
@@ -110,37 +167,21 @@ if ($data['id_user'] != $id_user_login) {
                 </div>
             </div>
 
-            <h5 class="fw-bold text-dark">Data Pembeli:</h5>
-            <div class="row">
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Nama Perusahaan:</strong> <?= htmlspecialchars($data['nama_perusahaan']) ?></p>
-                    <p class="mb-1"><strong>NPWP:</strong> <?= htmlspecialchars($data['npwp']) ?></p>
-                </div>
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Email Perusahaan:</strong> <?= htmlspecialchars($data['email']) ?></p>
-                    <p class="mb-1"><strong>No. Telepon:</strong> <?= htmlspecialchars($data['no_telepon']) ?></p>
-                </div>
-            </div>
-
-            <h5 class="fw-bold text-dark mt-4">Data Barang:</h5>
-            <table class="table table-bordered align-middle">
+            <table class="table table-bordered align-middle mt-4">
                 <thead class="table-light">
                     <tr>
                         <th>Nama Produk</th>
-                        <th>Merek</th>
                         <th>Harga Satuan</th>
                         <th>Jumlah</th>
                         <th>Subtotal</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php 
-                    foreach ($items as $item): 
+                    <?php foreach ($items as $item): 
                         $subtotal = (float)$item['harga_satuan'] * (int)$item['jumlah'];
                     ?>
                     <tr>
-                        <td><?= htmlspecialchars($item['nama_barang']) ?> (<?= htmlspecialchars($item['jenis']) ?>)</td>
-                        <td><?= htmlspecialchars($item['merek']) ?></td>
+                        <td><?= htmlspecialchars($item['nama_barang']) ?></td>
                         <td>Rp <?= number_format($item['harga_satuan'], 0, ',', '.') ?></td>
                         <td><?= htmlspecialchars($item['jumlah']) ?> <?= htmlspecialchars($item['satuan']) ?></td>
                         <td>Rp <?= number_format($subtotal, 0, ',', '.') ?></td>
@@ -149,73 +190,31 @@ if ($data['id_user'] != $id_user_login) {
                 </tbody>
                 <tfoot>
                     <tr class="fw-bold fs-5">
-                        <td colspan="4" class="text-end">Grand Total:</td>
+                        <td colspan="3" class="text-end">Grand Total:</td>
                         <td class="text-success">Rp <?= number_format($data['total_harga'], 0, ',', '.') ?></td>
                     </tr>
                 </tfoot>
             </table>
 
-            <h5 class="fw-bold text-dark mt-4">Data Waktu:</h5>
-            <div class="row">
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Tanggal Pesan:</strong> <?= htmlspecialchars(date('d F Y, H:i', strtotime($data['tanggal_pesan']))) ?></p>
-                </div>
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Waktu Kirim:</strong> <?= htmlspecialchars(date('d F Y, H:i', strtotime($data['waktu_kirim']))) ?></p>
-                </div>
-            </div>
-
-            <!-- 
-            =======================================================
-            TAMBAHAN BARU: DATA PENGIRIMAN
-            =======================================================
-            -->
             <?php if ($data['status'] == 'Dikirim' || $data['status'] == 'Diterima'): ?>
-            <h5 class="fw-bold text-dark mt-4">Data Pengiriman:</h5>
-            <div class="row">
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Kurir / Ekspedisi:</strong> <?= htmlspecialchars($data['kurir'] ?? 'N/A') ?></p>
-                </div>
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>No. Resi:</strong> <?= htmlspecialchars($data['no_resi'] ?? 'N/A') ?></p>
-                </div>
-            </div>
-            <?php endif; ?>
-            <!-- =================================================== -->
-            
-            <hr class="my-4">
-
-            <!-- TANDA TANGAN DINAMIS -->
-            <div class="row signature-section">
-                <div class="col-md-6">
-                    <h6 class="fw-bold">Catatan:</h6>
-                    <p class="fst-italic text-muted small">
-                        - Harap lakukan pembayaran sebelum Waktu Kirim.<br>
-                        - Barang yang sudah dipesan tidak dapat dibatalkan.<br>
-                        - Terima kasih atas kepercayaan Anda.
-                    </p>
-                </div>
-
-                <div class="col-md-6">
-                    <div class="row text-center">
-                        <div class="col-6">
-                            <p class="mb-0">Dibuat,</p>
-                            <p class="signature-name"><?= htmlspecialchars($data['dibuat_oleh']) ?></p>
-                            <p class="small text-muted">Staff/Admin</p>
-                        </div>
-                        <div class="col-6">
-                            <p class="mb-0">Diketahui,</p>
-                            <p class="signature-name"><?= htmlspecialchars($data['diketahui_oleh']) ?></p>
-                            <p class="small text-muted">Manager/Pimpinan</p>
-                        </div>
+            <div class="alert alert-info mt-4">
+                <h5 class="fw-bold mb-3"><i class="bi bi-truck"></i> Informasi Pengiriman:</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Jasa Ekspedisi / Kurir:</strong></p>
+                        <p class="fs-5"><?= htmlspecialchars($data['kurir'] ?? '-') ?></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Nomor Resi:</strong></p>
+                        <p class="fs-5 fw-bold font-monospace"><?= htmlspecialchars($data['no_resi'] ?? '-') ?></p>
                     </div>
                 </div>
             </div>
+            <?php endif; ?>
 
         </div>
     </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

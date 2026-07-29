@@ -17,6 +17,16 @@ if ($username === '' || $password === '') {
     exit;
 }
 
+// Validasi Keamanan CAPTCHA
+$captcha_input = isset($_POST['captcha']) ? (int)$_POST['captcha'] : 0;
+$captcha_jawaban = isset($_SESSION['captcha_jawaban']) ? (int)$_SESSION['captcha_jawaban'] : -1;
+
+if ($captcha_input !== $captcha_jawaban) {
+    // Jika jawaban CAPTCHA salah, kembalikan ke halaman login
+    echo "<script>alert('CAPTCHA salah! Silakan masukkan hasil perhitungan yang benar.'); window.location='login.php';</script>";
+    exit;
+}
+
 // 1. Ambil data user dari database
 $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
 $stmt->execute([$username]);
